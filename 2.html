@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Protein Hierarchy Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
+        .ui-panel { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); 
+                    display: flex; gap: 15px; background: rgba(15,15,15,0.9); padding: 20px; 
+                    border-radius: 50px; border: 2px solid #00f2ff; z-index: 100; }
+        button { padding: 12px 25px; border-radius: 25px; border: none; cursor: pointer; 
+                 font-weight: bold; transition: 0.3s; background: #00f2ff; color: #000; }
+        button:hover { background: #fff; transform: scale(1.05); }
+        button:disabled { background: #222; color: #555; cursor: not-allowed; }
+        .info-panel { position: absolute; top: 20px; left: 20px; color: white; 
+                      background: rgba(0,0,0,0.8); padding: 25px; border-radius: 15px; border-left: 6px solid #00f2ff; width: 320px; }
+        #step-title { color: #00f2ff; margin: 0 0 5px 0; font-size: 22px; }
+    </style>
+</head>
+<body>
+    <div class="info-panel">
+        <h2 id="step-title">1차 구조: 아미노산 서열</h2>
+        <p id="step-desc">펩타이드 결합으로 연결된 선형 사슬입니다.</p>
+    </div>
+
+    <div class="ui-panel">
+        <button id="prev-btn" disabled>이전 단계</button>
+        <button id="next-btn">접기 (2차 구조) →</button>
+    </div>
+
+<script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    const mainGroup = new THREE.Group();
+    scene.add(mainGroup);
+
+    let currentStep = 1;
+    let transitionFactor = 0;
+    const chains = [];
+
+    const colors = [0xff4444, 0x44ff44, 0x44aaff, 0xffaa44];
+    for(let i=0; i<4; i++) {
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.MeshPhongMaterial({ color: colors[i], side: THREE.DoubleSide, shininess: 80 });
+        const mesh = new THREE.Mesh(geometry, material);
+        mainGroup.add(mesh);
+        chains.push({ mesh, seed: i });
+    }
+
+    function getPoint(step, t, chainObj) {
+        let x, y, z;
+        const s = chainObj.seed;
+
+        switch(step) {
+            case 1: // 1차: 직선
+                x = (t - 0.5) * 60; y = 0; z = 0;
+                break;
+
+            case 2: // 2차: 나선/병풍 분리 (사슬 2개만 보임)
+                if (s === 0) { // Alpha Helix
+                    x = Math.sin(t * 60) * 3 - 8; y = (t - 0.5) * 45; z = Math.cos(t * 60) * 3;
+                } else if (s === 1) { // Beta Sheet
+                    x = (t - 0.5) * 45 + 8; y = Math.sin(t * 100) * 1.5; z = (t % 0.08 < 0.04) ? 2 : -2;
+                } else {
+                    x = 0; y = 0; z = 0;
+                }
+                break;
+
+            case 3: // 3차: 단일 사슬의 불규칙한 뭉침 (사슬 0번만 보임)
+                const envelope3 = Math.sin(t * Math.PI);
+                const noiseX3 = Math.sin(t * 35) * 4 + Math.cos(t * 15) * 6;
+                const noiseY3 = Math.cos(t * 25) * 5 + Math.sin(t * 12) * 7;
+                const noiseZ3 = Math.sin(t * 20) * 6 + Math.cos(t * 18) * 4;
+                
+                x = (Math.cos(t * Math.PI * 8) * 10 + noiseX3) * envelope3;
+                y = 20 * Math.cos(t * Math.PI) + noiseY3 * envelope3;
+                z = (Math.sin(t * Math.PI * 8) * 10 + noiseZ3) * envelope3;
+                break;
+
+            case 4: // 4차: 4개의 사슬이 각자 3차 구조를 가지고 결합
+                const envelope4 = Math.sin(t * Math.PI);
+                // 각 사슬의 고유 오프셋 (4방향)
+                const offsetX = Math.cos(s * Math.PI / 2) * 10;
+                const offsetZ = Math.sin(s * Math.PI / 2) * 10;
+                
+                // 3차 구조의 불규칙성을 유지하며 크기를 약간 조정
+                const noiseX4 = Math.sin(t * 25 + s) * 3;
+                const noiseY4 = Math.cos(t * 20 + s) * 4;
+                const noiseZ4 = Math.sin(t * 30 + s) * 3;
+
+                x = (Math.cos(t * Math.PI * 6 + s) * 8 + noiseX4) * envelope4 + offsetX;
+                y = 15 * Math.cos(t * Math.PI) + noiseY4;
+                z = (Math.sin(t * Math.PI * 6 + s) * 8 + noiseZ4) * envelope4 + offsetZ;
+                break;
+        }
+        return new THREE.Vector3(x, y, z);
+    }
+
+    function updateChains() {
+        chains.forEach((chain, idx) => {
+            // 단계별 노출 로직
+            if (currentStep === 1) chain.mesh.visible = (idx === 0);
+            else if (currentStep === 2) chain.mesh.visible = (idx <= 1);
+            else if (currentStep === 3) chain.mesh.visible = (idx === 0); // 3차 구조는 다시 1개만!
+            else if (currentStep === 4) chain.mesh.visible = true; // 4차 구조에서 모두 등장
+
+            const points = [];
+            const segments = 200;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const prev = Math.max(1, currentStep - 1);
+                
+                // 3차 구조(사슬 1개)에서 4차 구조(사슬 4개)로 바뀔 때의 예외 처리
+                let pPrev;
+                if (currentStep === 4 && idx > 0) {
+                    // 0번 이외의 사슬들은 1차 구조 위치에서 날아오는 것으로 설정
+                    pPrev = getPoint(1, t, chain); 
+                } else {
+                    pPrev = getPoint(prev, t, chain);
+                }
+                
+                const pNext = getPoint(currentStep, t, chain);
+                points.push(new THREE.Vector3().lerpVectors(pPrev, pNext, transitionFactor));
+            }
+            const curve = new THREE.CatmullRomCurve3(points);
+            chain.mesh.geometry.dispose();
+            chain.mesh.geometry = new THREE.TubeGeometry(curve, 128, 1.0, 8, false);
+        });
+    }
+
+    const nextBtn = document.getElementById('next-btn');
+    const prevBtn = document.getElementById('prev-btn');
+    const title = document.getElementById('step-title');
+    const desc = document.getElementById('step-desc');
+
+    const info = [
+        {},
+        { t: "1차 구조", d: "아미노산 사슬 1개로 시작합니다.", b: "접기 (2차) →" },
+        { t: "2차 구조", d: "알파 나선과 베타 병풍을 비교합니다.", b: "복잡하게 접기 (3차) →" },
+        { t: "3차 구조", d: "사슬 1개가 매우 불규칙하고 복잡하게 접혀 입체를 형성합니다.", b: "모으기 (4차) →" },
+        { t: "4차 구조", d: "완성된 단위체들이 모여 거대한 복합체를 이룹니다.", b: "완료" }
+    ];
+
+    nextBtn.onclick = () => { if(currentStep < 4) { currentStep++; transitionFactor = 0; updateUI(); } };
+    prevBtn.onclick = () => { if(currentStep > 1) { currentStep--; transitionFactor = 0; updateUI(); } };
+
+    function updateUI() {
+        title.innerText = info[currentStep].t;
+        desc.innerText = info[currentStep].d;
+        nextBtn.innerText = info[currentStep].b;
+        nextBtn.disabled = currentStep === 4;
+        prevBtn.disabled = currentStep === 1;
+    }
+
+    scene.add(new THREE.AmbientLight(0x606060));
+    const light = new THREE.PointLight(0xffffff, 1.5, 100);
+    light.position.set(20, 30, 20);
+    scene.add(light);
+    camera.position.set(0, 10, 70);
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (transitionFactor < 1) transitionFactor += 0.015;
+        updateChains();
+        mainGroup.rotation.y += 0.005;
+        renderer.render(scene, camera);
+    }
+    animate();
+</script>
+</body>
+</html>

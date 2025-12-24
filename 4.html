@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>BSA-Bradford Assay Interaction Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #0a0a0a; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
+        .panel { position: absolute; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.85); 
+                padding: 20px; border-radius: 12px; border: 1px solid #3498db; width: 300px; z-index: 100; }
+        .btn-inject { background: #e74c3c; color: white; border: none; padding: 12px; width: 100%; 
+                      border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 15px; transition: 0.3s; }
+        .btn-inject:hover { background: #c0392b; box-shadow: 0 0 15px rgba(231, 76, 60, 0.5); }
+        .status-box { margin-top: 15px; font-size: 13px; color: #bdc3c7; line-height: 1.5; }
+        .highlight { color: #3498db; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h2 style="color: #3498db; margin: 0 0 10px 0; font-size: 18px;">BSA-Bradford Simulator</h2>
+        <div id="status" style="font-weight: bold; margin-bottom: 10px;">상태: BSA 천연 구조 (Native)</div>
+        
+        <div class="status-box">
+            <b>분자량:</b> 약 66.5 kDa<br>
+            <b>특징:</b> 3개의 도메인, 하트 모양 구조<br>
+            <b>현재 용액:</b> 중성 완충액 (pH 7.0)
+        </div>
+
+        <button class="btn-inject" id="inject-btn">Coomassie Blue G-250 주입</button>
+        
+        <div id="chem-info" class="status-box" style="display:none; border-top: 1px solid #444; padding-top: 10px;">
+            <span class="highlight">화학적 변화:</span><br>
+            1. 강산에 의한 BSA 구조 팽창(pH 1.0)<br>
+            2. 소수성 포켓 및 Arg/Lys 잔기 노출<br>
+            3. 시약-단백질 복합체 형성 (파란색)
+        </div>
+    </div>
+
+<script>
+    // --- 기본 Scene 설정 ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    const bsaGroup = new THREE.Group();
+    scene.add(bsaGroup);
+
+    let isInjected = false;
+    let transitionFactor = 0; // 0 (Native) to 1 (Bound)
+    let bsaChains = [];
+
+    // --- BSA 모사 사슬 클래스 ---
+    class BSAChain {
+        constructor(offset, seed) {
+            this.seed = seed;
+            this.offset = offset;
+            this.geometry = new THREE.BufferGeometry();
+            this.material = new THREE.MeshPhongMaterial({ 
+                color: 0xffdbac, // 단백질 기본색
+                shininess: 100,
+                transparent: true,
+                opacity: 0.9
+            });
+            this.mesh = new THREE.Mesh(this.geometry, this.material);
+            bsaGroup.add(this.mesh);
+        }
+
+        update(time) {
+            const points = [];
+            const segments = 60;
+            
+            // 시약 주입 시 구조가 팽창(Expansion)하고 불규칙해짐
+            const expansion = 1 + (transitionFactor * 1.5); 
+            const chaos = transitionFactor * 5;
+
+            for (let i = 0; i < segments; i++) {
+                const t = i * 0.2;
+                // Native: 하트 모양을 모사하는 꼬인 루프 구조
+                let x = Math.sin(t + this.seed) * (8 * expansion);
+                let y = (i - 30) * (0.5 * expansion);
+                let z = Math.cos(t * 1.5 + this.seed) * (6 * expansion);
+
+                // 시약 결합 시 무작위 진동(구조 변성 효과)
+                if (isInjected) {
+                    x += Math.sin(t * 3 + time) * chaos;
+                    y += Math.cos(t * 2 + time) * chaos;
+                    z += Math.sin(time * 1.5) * chaos;
+                }
+
+                points.push(new THREE.Vector3(x + this.offset.x, y + this.offset.y, z + this.offset.z));
+            }
+
+            const curve = new THREE.CatmullRomCurve3(points);
+            const newGeom = new THREE.TubeGeometry(curve, 100, 0.6 + (transitionFactor * 0.4), 8, false);
+            this.geometry.dispose();
+            this.geometry = newGeom;
+            this.mesh.geometry = this.geometry;
+
+            // 색상 변화: 베이지(Native) -> 짙은 파란색(Bradford Complex)
+            const targetColor = new THREE.Color(0x0033ff); // 파란색 착물
+            this.material.color.lerp(isInjected ? targetColor : new THREE.Color(0xffdbac), 0.05);
+        }
+    }
+
+    // BSA의 3개 도메인을 상징하는 사슬 생성
+    bsaChains.push(new BSAChain(new THREE.Vector3(0, 0, 0), 0));
+    bsaChains.push(new BSAChain(new THREE.Vector3(4, 2, -2), 2));
+    bsaChains.push(new BSAChain(new THREE.Vector3(-4, 2, 2), 4));
+
+    // --- 시각적 보조 요소: 리간드(시약 분자) ---
+    const particles = new THREE.BufferGeometry();
+    const pCount = 200;
+    const posArray = new Float32Array(pCount * 3);
+    for(let i=0; i<pCount*3; i++) posArray[i] = (Math.random()-0.5) * 100;
+    particles.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    const pMat = new THREE.PointsMaterial({ size: 0.5, color: 0xff0000 }); // 처음엔 붉은색 시약
+    const pMesh = new THREE.Points(particles, pMat);
+    scene.add(pMesh);
+
+    // --- 조명 ---
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    const pointLight = new THREE.PointLight(0xffffff, 1);
+    pointLight.position.set(20, 30, 20);
+    scene.add(pointLight);
+    camera.position.z = 60;
+
+    // --- 이벤트 핸들러 ---
+    document.getElementById('inject-btn').addEventListener('click', function() {
+        isInjected = true;
+        this.disabled = true;
+        this.innerText = "반응 진행 중...";
+        this.style.background = "#2c3e50";
+        document.getElementById('status').innerText = "상태: 시약 결합 및 구조 변성";
+        document.getElementById('status').style.color = "#3498db";
+        document.getElementById('chem-info').style.display = "block";
+        pMat.color.set(0x0000ff); // 시약이 결합하며 파란색으로 변함
+    });
+
+    // --- 애니메이션 루프 ---
+    function animate() {
+        const time = Date.now() * 0.001;
+        requestAnimationFrame(animate);
+
+        if (isInjected && transitionFactor < 1) {
+            transitionFactor += 0.005;
+        }
+
+        bsaChains.forEach(c => c.update(time));
+        
+        // 시약 입자들이 단백질 주변으로 끌려오는 효과
+        if (isInjected) {
+            const positions = pMesh.geometry.attributes.position.array;
+            for(let i=0; i<pCount; i++) {
+                positions[i*3] *= 0.98;
+                positions[i*3+1] *= 0.98;
+                positions[i*3+2] *= 0.98;
+            }
+            pMesh.geometry.attributes.position.needsUpdate = true;
+            pMesh.rotation.y += 0.01;
+        }
+
+        bsaGroup.rotation.y += 0.005;
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>

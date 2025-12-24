@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>96-Well Bradford Assay Simulator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: 'Malgun Gothic', sans-serif; }
+        #lab-bench { width: 950px; height: 700px; background: #fff; border: 10px solid #4a90e2; border-radius: 20px; position: relative; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        
+        /* 상단 상태창 */
+        #status-bar { background: #4a90e2; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; border-radius: 10px 10px 0 0; }
+        
+        /* 메인 실험 구역 */
+        #work-area { flex: 1; display: flex; padding: 20px; gap: 20px; position: relative; }
+        
+        /* 플레이트 구역 */
+        #plate-area { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+        #plate-96 { background: #eee; border: 2px solid #ccc; padding: 10px; border-radius: 5px; display: grid; grid-template-columns: 30px repeat(12, 1fr); grid-template-rows: 25px repeat(8, 1fr); gap: 4px; width: 550px; height: 380px; }
+        .well { background: #fff; border: 1px solid #bbb; border-radius: 50%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; cursor: crosshair; }
+        .well-label { font-size: 10px; font-weight: bold; color: #666; display: flex; align-items: center; justify-content: center; }
+        .liquid { position: absolute; bottom: 0; width: 100%; height: 0%; transition: all 0.5s; opacity: 0.8; }
+
+        /* 도구함 */
+        #tool-rack { width: 280px; display: flex; flex-direction: column; gap: 15px; }
+        .tube-rack { background: #d1d1d1; padding: 15px; border-radius: 10px; border-bottom: 4px solid #aaa; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .bsa-stock { width: 45px; text-align: center; cursor: pointer; transition: 0.2s; }
+        .bsa-stock:hover { transform: translateY(-3px); }
+        .tube-visual { width: 25px; height: 45px; background: #fff; border: 2px solid #999; border-radius: 0 0 8px 8px; margin: 0 auto 5px; position: relative; overflow: hidden; }
+        .tube-label { font-size: 11px; font-weight: bold; color: #333; }
+        
+        /* 버튼 */
+        #action-btn { background: #ff4757; color: white; border: none; padding: 15px; border-radius: 10px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        #action-btn:hover { background: #ff6b81; }
+        #action-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* 결과 창 */
+        #result-display { margin-top: 10px; background: #2f3542; color: #2ed573; padding: 12px; font-family: 'Courier New'; border-radius: 5px; font-size: 12px; height: 120px; overflow-y: auto; line-height: 1.5; }
+
+        /* 그래프 팝업 모달 */
+        #chart-modal { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 80%; background: white; border: 4px solid #4a90e2; border-radius: 15px; z-index: 1000; padding: 20px; box-shadow: 0 0 50px rgba(0,0,0,0.5); }
+        #close-chart { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; border: none; background: none; color: #ff4757; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="lab-bench">
+    <div id="status-bar">
+        <h2 style="margin:0">🧪 Bradford 96-Well Simulator</h2>
+        <div>현재 단계: <span id="current-step">BSA 분주하기</span></div>
+    </div>
+
+    <div id="work-area">
+        <div id="plate-area">
+            <div id="plate-96"></div>
+            <div id="result-display">READY TO START...<br>> A1~A6 웰에 농도별 BSA를 넣으세요.</div>
+        </div>
+
+        <div id="tool-rack">
+            <div class="tube-rack">
+                <p style="width:100%; margin:0 0 10px; font-size:12px; font-weight:bold;">BSA Standards (mg/mL)</p>
+                <div class="bsa-stock" onclick="selectBSA(0.0)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">0.0</div>
+                </div>
+                <div class="bsa-stock" onclick="selectBSA(0.2)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">0.2</div>
+                </div>
+                <div class="bsa-stock" onclick="selectBSA(0.4)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">0.4</div>
+                </div>
+                <div class="bsa-stock" onclick="selectBSA(0.6)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">0.6</div>
+                </div>
+                <div class="bsa-stock" onclick="selectBSA(0.8)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">0.8</div>
+                </div>
+                <div class="bsa-stock" onclick="selectBSA(1.0)">
+                    <div class="tube-visual"><div style="height:40%; background:#f9f9f9;"></div></div><div class="tube-label">1.0</div>
+                </div>
+            </div>
+
+            <div class="tube-rack">
+                <p style="width:100%; margin:0 0 10px; font-size:12px; font-weight:bold;">Reagent</p>
+                <div class="bsa-stock" onclick="selectReagent()" style="width:100px;">
+                    <div class="tube-visual" style="background:#e67e22; width:35px; height:50px;"></div>
+                    <div class="tube-label">Bradford 시약</div>
+                </div>
+            </div>
+
+            <button id="action-btn" onclick="readPlate()">PLATE READER & 그래프</button>
+        </div>
+
+        <div id="chart-modal">
+            <button id="close-chart" onclick="closeChart()">X</button>
+            <h3 style="text-align:center; margin-top:0;">BSA Standard Curve (595nm)</h3>
+            <canvas id="standardCurveChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const plate = document.getElementById('plate-96');
+    const resultDisplay = document.getElementById('result-display');
+    const actionBtn = document.getElementById('action-btn');
+    actionBtn.disabled = true;
+
+    let selectedConc = null;
+    let mode = 'BSA'; 
+    let wellData = Array.from({ length: 8 }, () => Array(12).fill(null).map(() => ({ bsa: null, reagent: false, abs: 0 })));
+
+    function initPlate() {
+        plate.innerHTML = '<div></div>';
+        for (let i = 1; i <= 12; i++) plate.innerHTML += `<div class="well-label">${i}</div>`;
+        const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+        for (let r = 0; r < 8; r++) {
+            plate.innerHTML += `<div class="well-label">${rows[r]}</div>`;
+            for (let c = 0; c < 12; c++) {
+                plate.innerHTML += `<div class="well" id="well-${r}-${c}" onclick="pipetteToWell(${r}, ${c})"><div class="liquid" id="liq-${r}-${c}"></div></div>`;
+            }
+        }
+    }
+
+    function selectBSA(conc) {
+        selectedConc = conc;
+        mode = 'BSA';
+        log(`> BSA ${conc} mg/mL 선택됨.`);
+    }
+
+    function selectReagent() {
+        mode = 'REAGENT';
+        log(`> Bradford 시약 선택됨.`);
+    }
+
+    function pipetteToWell(r, c) {
+        const liq = document.getElementById(`liq-${r}-${c}`);
+        const currentWell = wellData[r][c];
+
+        if (mode === 'BSA') {
+            currentWell.bsa = selectedConc;
+            liq.style.height = '30%';
+            liq.style.background = '#e0e0e0';
+            log(`> Well ${String.fromCharCode(65+r)}${c+1}: BSA ${selectedConc}mg/mL 추가`);
+        } else if (mode === 'REAGENT' && currentWell.bsa !== null) {
+            currentWell.reagent = true;
+            liq.style.height = '85%';
+            
+            const conc = currentWell.bsa;
+            // 색상 농도 수식
+            const blueIntensity = Math.min(255, conc * 180);
+            liq.style.background = `rgb(${140 - blueIntensity/2}, ${100 - blueIntensity/2}, ${140 + blueIntensity/1.2})`;
+            
+            // 흡광도 계산 (노이즈 포함)
+            currentWell.abs = parseFloat((conc * 0.65 + 0.12 + (Math.random()*0.04 - 0.02)).toFixed(3));
+            log(`> Well ${String.fromCharCode(65+r)}${c+1}: 반응 완료`);
+            
+            checkReady();
+        }
+    }
+
+    function checkReady() {
+        const ready = wellData[0].slice(0, 6).every(w => w.reagent);
+        if (ready) {
+            actionBtn.disabled = false;
+            document.getElementById('current-step').innerText = "측정 준비 완료";
+        }
+    }
+
+    let myChart = null;
+    function readPlate() {
+        log("--- PLATE READER 결과 ---");
+        const concs = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+        const absValues = wellData[0].slice(0, 6).map(w => w.abs);
+        
+        log(absValues.map((v, i) => `A${i+1}:${v}`).join(" | "));
+        
+        // 차트 모달 열기
+        document.getElementById('chart-modal').style.display = 'block';
+        const ctx = document.getElementById('standardCurveChart').getContext('2d');
+        
+        if(myChart) myChart.destroy();
+        myChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Absorbance (595nm)',
+                    data: concs.map((c, i) => ({x: c, y: absValues[i]})),
+                    backgroundColor: '#ff4757',
+                    pointRadius: 6
+                }, {
+                    label: 'Trend Line',
+                    data: [{x: 0, y: absValues[0]}, {x: 1.0, y: absValues[5]}],
+                    type: 'line',
+                    borderColor: '#4a90e2',
+                    borderDash: [5, 5],
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Concentration (mg/mL)' }, min: 0 },
+                    y: { title: { display: true, text: 'Absorbance' }, min: 0 }
+                }
+            }
+        });
+    }
+
+    function closeChart() { document.getElementById('chart-modal').style.display = 'none'; }
+    function log(msg) {
+        resultDisplay.innerHTML += `<br>> ${msg}`;
+        resultDisplay.scrollTop = resultDisplay.scrollHeight;
+    }
+
+    initPlate();
+</script>
+</body>
+</html>

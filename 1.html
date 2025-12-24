@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ultimate Protein Denaturation Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #050505; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
+        .panel { position: absolute; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.85); 
+                padding: 20px; border-radius: 12px; border: 1px solid #444; width: 280px; z-index: 100; }
+        .temp-control { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); 
+                        width: 450px; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 50px; 
+                        color: white; text-align: center; border: 2px solid #ff4d4d; z-index: 100; }
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #ff4d4d; }
+        .control-item { margin-bottom: 12px; display: flex; align-items: center; font-size: 14px; }
+        .control-item input { margin-right: 10px; cursor: pointer; }
+        .status-msg { font-size: 11px; opacity: 0.6; margin-top: 10px; line-height: 1.4; }
+        .broken-label { color: #ff4d4d; text-decoration: line-through; opacity: 0.5; }
+        .active-label { color: #00ff00; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h2 style="color: #ff4d4d; margin: 0 0 10px 0; font-size: 18px;">단백질 구조 및 결합 제어</h2>
+        <div id="overall-status" style="font-weight: bold; margin-bottom: 15px;">상태: 정상 (Active)</div>
+        
+        <div class="control-item"><input type="checkbox" id="h-bond" checked> <span id="lbl-h-bond">수소 결합 (45°C)</span></div>
+        <div class="control-item"><input type="checkbox" id="electro" checked> <span id="lbl-electro">정전기적 인력 (60°C)</span></div>
+        <div class="control-item"><input type="checkbox" id="hydro" checked> <span id="lbl-hydro">소수성 상호작용 (75°C)</span></div>
+        <div class="control-item"><input type="checkbox" id="disulfide" checked> <span id="lbl-disulfide">이황화 결합 (95°C)</span></div>
+        
+        <div class="status-msg">
+            * 체크를 해제하거나 온도를 높이면 결합력이 상실되어 입체 구조가 변성됩니다.
+        </div>
+    </div>
+
+    <div class="temp-control">
+        <div style="margin-bottom: 10px; font-size: 18px;">환경 온도: <span id="temp-val">36.5</span>°C</div>
+        <input type="range" id="temp-slider" min="20" max="100" value="36.5" step="0.1">
+    </div>
+
+<script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    const mainGroup = new THREE.Group();
+    const interactionGroup = new THREE.Group();
+    mainGroup.add(interactionGroup);
+    scene.add(mainGroup);
+
+    let currentTemp = 36.5;
+    let bondStates = { 'h-bond': true, 'disulfide': true, 'electro': true, 'hydro': true };
+    let chains = [];
+
+    // --- 단백질 사슬 클래스 ---
+    class ProteinChain {
+        constructor(color, seed, pos) {
+            this.color = new THREE.Color(color);
+            this.seed = seed;
+            this.initialPos = new THREE.Vector3(...pos);
+            this.chaos = 0;
+            this.geometry = new THREE.BufferGeometry();
+            this.material = new THREE.MeshPhongMaterial({ color: color, side: THREE.DoubleSide, shininess: 80 });
+            this.mesh = new THREE.Mesh(this.geometry, this.material);
+            mainGroup.add(this.mesh);
+        }
+
+        update(time) {
+            // 결합 해제 개수(수동+온도합산)에 따른 타겟 카오스 계산
+            const missingBonds = Object.values(bondStates).filter(v => !v).length;
+            const targetChaos = (missingBonds * 0.25) + Math.max(0, (currentTemp - 36.5) / 100);
+            this.chaos = THREE.MathUtils.lerp(this.chaos, targetChaos, 0.05);
+
+            const points = [];
+            const segments = 45;
+            for (let i = 0; i < segments; i++) {
+                const t = i * 0.4;
+                let x = Math.sin(t * 0.5 + this.seed) * 7;
+                let y = (i - 22.5) * 0.7;
+                let z = Math.cos(t * 0.5 + this.seed) * 7;
+
+                if (this.chaos > 0.05) {
+                    const noise = this.chaos * 12;
+                    x += Math.sin(t + time * 2) * noise;
+                    y += Math.cos(t * 0.5 + time) * noise * 0.5;
+                    z += Math.cos(t + time * 1.5) * noise;
+                }
+                points.push(new THREE.Vector3(x + this.initialPos.x, y + this.initialPos.y, z + this.initialPos.z));
+            }
+
+            const curve = new THREE.CatmullRomCurve3(points);
+            const newGeom = new THREE.TubeGeometry(curve, 80, 0.5 + (this.chaos * 0.4), 4, false);
+            this.geometry.dispose();
+            this.geometry = newGeom;
+            this.mesh.geometry = this.geometry;
+
+            // 열에 의한 변색 효과
+            const burnFactor = Math.min(1, this.chaos * 1.2);
+            this.material.color.copy(this.color).lerp(new THREE.Color(0x221100), burnFactor);
+        }
+    }
+
+    // --- 초기 배치 ---
+    const chainData = [
+        { color: 0xff6666, seed: 0, pos: [6, 6, 0] },
+        { color: 0xffaa66, seed: 2, pos: [-6, -6, 0] },
+        { color: 0x66ccff, seed: 4, pos: [-6, 6, 6] },
+        { color: 0x6688ff, seed: 6, pos: [6, -6, -6] }
+    ];
+    chainData.forEach(d => chains.push(new ProteinChain(d.color, d.seed, d.pos)));
+
+    // --- 결합선 및 UI 업데이트 로직 ---
+    function updateLogic() {
+        const bondThresholds = [
+            { id: 'h-bond', temp: 45 },
+            { id: 'electro', temp: 60 },
+            { id: 'hydro', temp: 75 },
+            { id: 'disulfide', temp: 95 }
+        ];
+
+        let brokenByTempCount = 0;
+        bondThresholds.forEach(b => {
+            const checkbox = document.getElementById(b.id);
+            const label = document.getElementById('lbl-' + b.id);
+            
+            // 온도가 임계점을 넘으면 강제로 체크 해제 및 스타일 변경
+            if (currentTemp > b.temp) {
+                checkbox.checked = false;
+                checkbox.disabled = true; // 온도에 의해 깨지면 수동 조작 불가
+                label.className = 'broken-label';
+                bondStates[b.id] = false;
+                brokenByTempCount++;
+            } else {
+                checkbox.disabled = false;
+                label.className = 'active-label';
+                bondStates[b.id] = checkbox.checked;
+            }
+        });
+
+        const statusText = document.getElementById('overall-status');
+        const missingTotal = Object.values(bondStates).filter(v => !v).length;
+        if (missingTotal === 0) statusText.innerText = "상태: 정상 (Active)";
+        else if (missingTotal < 4) statusText.innerText = "상태: 변성 진행 중 (Denaturing...)";
+        else statusText.innerText = "상태: 완전 변성 (Inactive)";
+    }
+
+    function drawInteractions() {
+        interactionGroup.clear();
+        const activeBonds = Object.keys(bondStates).filter(k => bondStates[k]);
+        if (activeBonds.length === 0) return;
+
+        const colors = { 'h-bond': 0xffffff, 'disulfide': 0xffff00, 'electro': 0x00ff00, 'hydro': 0x888888 };
+        
+        for (let i = 0; i < chains.length; i++) {
+            const nextIdx = (i + 1) % chains.length;
+            const p1 = chains[i].mesh.geometry.parameters.path.getPoint(0.5);
+            const p2 = chains[nextIdx].mesh.geometry.parameters.path.getPoint(0.5);
+
+            activeBonds.forEach((key, idx) => {
+                const lineGeom = new THREE.BufferGeometry().setFromPoints([
+                    p1.clone().addScalar(idx * 0.3), 
+                    p2.clone().addScalar(idx * 0.3)
+                ]);
+                const lineMat = new THREE.LineBasicMaterial({ color: colors[key], transparent: true, opacity: 0.4 });
+                interactionGroup.add(new THREE.Line(lineGeom, lineMat));
+            });
+        }
+    }
+
+    // --- 조명 및 카메라 ---
+    const light = new THREE.PointLight(0xffffff, 1.2, 100);
+    light.position.set(20, 25, 20);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+    camera.position.z = 55;
+
+    // --- 이벤트 리스너 ---
+    document.getElementById('temp-slider').addEventListener('input', (e) => {
+        currentTemp = parseFloat(e.target.value);
+        document.getElementById('temp-val').innerText = currentTemp.toFixed(1);
+    });
+
+    document.querySelectorAll('input[type=checkbox]').forEach(el => {
+        el.addEventListener('change', (e) => {
+            bondStates[e.target.id] = e.target.checked;
+        });
+    });
+
+    // --- 애니메이션 루프 ---
+    function animate() {
+        const time = Date.now() * 0.001;
+        requestAnimationFrame(animate);
+        
+        updateLogic();
+        chains.forEach(c => c.update(time));
+        drawInteractions();
+        
+        mainGroup.rotation.y += 0.002 + (Object.values(bondStates).filter(v=>!v).length * 0.005);
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
